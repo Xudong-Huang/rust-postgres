@@ -78,6 +78,7 @@ extern crate log;
 extern crate postgres_protocol;
 extern crate postgres_shared;
 extern crate socket2;
+extern crate may;
 
 use fallible_iterator::FallibleIterator;
 use postgres_protocol::authentication;
