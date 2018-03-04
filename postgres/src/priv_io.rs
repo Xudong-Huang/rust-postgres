@@ -1,17 +1,17 @@
 use bytes::{BufMut, BytesMut};
 use postgres_protocol::message::backend;
 use postgres_protocol::message::frontend;
-use socket2::{Domain, SockAddr, Socket, Type};
-use std::io::{self, BufWriter, Read, Write};
-use std::net::{ToSocketAddrs, SocketAddr};
+use co_socket::CoSocket;
 use may::net::TcpStream;
 #[cfg(unix)]
 use may::os::unix::net::UnixStream;
+use std::io::{self, BufWriter, Read, Write};
+use std::net::ToSocketAddrs;
+#[cfg(unix)]
 use std::os::unix::io::{AsRawFd, RawFd};
 #[cfg(windows)]
 use std::os::windows::io::{AsRawSocket, RawSocket};
 use std::result;
-use co_socket::CoSocket;
 use std::time::Duration;
 
 use error;
@@ -127,10 +127,8 @@ impl MessageStream {
         self.stream.get_ref().get_ref().0.set_read_timeout(timeout)
     }
 
-    fn set_nonblocking(&self, _nonblock: bool) -> io::Result<()> {
-        // TODO: ref may project issue #38
-        // self.stream.get_ref().get_ref().0.set_nonblocking(nonblock)
-        unimplemented!()
+    fn set_nonblocking(&self, nonblock: bool) -> io::Result<()> {
+        self.stream.get_ref().get_ref().0.set_nonblocking(nonblock)
     }
 }
 
@@ -187,9 +185,9 @@ fn open_socket(params: &ConnectParams) -> Result<CoSocket> {
         Host::Tcp(ref host) => {
             let mut error = None;
             for addr in (&**host, port).to_socket_addrs()? {
-                if let Some(keepalive) = params.keepalive() {
-                    socket.set_keepalive(Some(keepalive))?;
-                }
+                // if let Some(keepalive) = params.keepalive() {
+                //     s.set_keepalive(Some(keepalive))?;
+                // }
                 let r = match params.connect_timeout() {
                     Some(timeout) => TcpStream::connect_timeout(&addr, timeout),
                     None => TcpStream::connect(&addr),

@@ -26,6 +26,14 @@ impl CoSocket {
             Unix(ref s) => s.set_read_timeout(timeout),
         }
     }
+
+    pub fn set_nonblocking(&self, nonblock: bool) -> io::Result<()> {
+        match *self {
+            Tcp(ref s) => s.set_nonblocking(nonblock),
+            #[cfg(unix)]
+            Unix(ref s) => s.set_nonblocking(nonblock),
+        }
+    }
 }
 
 impl Read for CoSocket {
