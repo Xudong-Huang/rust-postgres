@@ -3,14 +3,15 @@ use postgres_protocol::message::backend;
 use postgres_protocol::message::frontend;
 use socket2::{Domain, SockAddr, Socket, Type};
 use std::io::{self, BufWriter, Read, Write};
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::ops::{Deref, DerefMut};
-use may::io::CoIo;
+use std::net::{ToSocketAddrs, SocketAddr};
+use may::net::TcpStream;
 #[cfg(unix)]
+use may::os::unix::net::UnixStream;
 use std::os::unix::io::{AsRawFd, RawFd};
 #[cfg(windows)]
-use std::os::windows::io::{AsRawHandle, AsRawSocket, RawHandle, RawSocket};
+use std::os::windows::io::{AsRawSocket, RawSocket};
 use std::result;
+use co_socket::CoSocket;
 use std::time::Duration;
 
 use error;
@@ -129,7 +130,7 @@ impl MessageStream {
     fn set_nonblocking(&self, _nonblock: bool) -> io::Result<()> {
         // TODO: ref may project issue #38
         // self.stream.get_ref().get_ref().0.set_nonblocking(nonblock)
-        Ok(())
+        unimplemented!()
     }
 }
 
@@ -138,7 +139,7 @@ impl MessageStream {
 /// It implements `Read`, `Write` and `TlsStream`, as well as `AsRawFd` on
 /// Unix platforms and `AsRawSocket` on Windows platforms.
 #[derive(Debug)]
-pub struct Stream(CoIo<CoSocket>);
+pub struct Stream(CoSocket);
 
 impl Read for Stream {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
@@ -176,88 +177,25 @@ impl AsRawFd for Stream {
 #[cfg(windows)]
 impl AsRawSocket for Stream {
     fn as_raw_socket(&self) -> RawSocket {
-        self.0.inner().as_raw_socket()
+        self.0.as_raw_socket()
     }
 }
 
-#[derive(Debug)]
-struct CoSocket(Socket);
-
-impl Read for CoSocket {
-    #[inline]
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.0.read(buf)
-    }
-}
-
-impl Write for CoSocket {
-    #[inline]
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.write(buf)
-    }
-    #[inline]
-    fn flush(&mut self) -> io::Result<()> {
-        self.0.flush()
-    }
-}
-
-impl Deref for CoSocket {
-    type Target = Socket;
-    #[inline]
-    fn deref(&self) -> &Socket {
-        &self.0
-    }
-}
-
-impl DerefMut for CoSocket {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Socket {
-        &mut self.0
-    }
-}
-
-#[cfg(unix)]
-impl AsRawFd for CoSocket {
-    #[inline]
-    fn as_raw_fd(&self) -> RawFd {
-        self.0.as_raw_fd()
-    }
-}
-
-#[cfg(windows)]
-impl AsRawHandle for CoSocket {
-    #[inline]
-    fn as_raw_handle(&self) -> RawHandle {
-        self.0.as_raw_socket() as RawHandle
-    }
-}
-
-fn open_socket(params: &ConnectParams) -> Result<CoIo<CoSocket>> {
+fn open_socket(params: &ConnectParams) -> Result<CoSocket> {
     let port = params.port();
     match *params.host() {
         Host::Tcp(ref host) => {
             let mut error = None;
             for addr in (&**host, port).to_socket_addrs()? {
-                let domain = match addr {
-                    SocketAddr::V4(_) => Domain::ipv4(),
-                    SocketAddr::V6(_) => Domain::ipv6(),
-                };
-                let socket = Socket::new(domain, Type::stream(), None)?;
                 if let Some(keepalive) = params.keepalive() {
                     socket.set_keepalive(Some(keepalive))?;
                 }
-                let addr = SockAddr::from(addr);
                 let r = match params.connect_timeout() {
-                    Some(timeout) => socket.connect_timeout(&addr, timeout),
-                    None => socket.connect(&addr),
+                    Some(timeout) => TcpStream::connect_timeout(&addr, timeout),
+                    None => TcpStream::connect(&addr),
                 };
                 match r {
-                    Ok(()) =>{
-                        match CoIo::new(CoSocket(socket)) {
-                            Ok(s) => return Ok(s),
-                            Err(e) => error = Some(e.into()),
-                        }
-                    } 
+                    Ok(s) => return Ok(CoSocket::from(s)),
                     Err(e) => error = Some(e),
                 }
             }
@@ -273,10 +211,7 @@ fn open_socket(params: &ConnectParams) -> Result<CoIo<CoSocket>> {
         #[cfg(unix)]
         Host::Unix(ref path) => {
             let path = path.join(&format!(".s.PGSQL.{}", port));
-            let socket = UnixStream::connect(&path).map(|s| unsafe {
-                Socket::from_raw_fd(s.into_raw_fd())
-            })?;
-            Ok(CoIo::new(CoSocket(socket)).map_err(|e| io::Error::from(e))?)
+            Ok(CoSocket::from(UnixStream::connect(&path)?))
         }
         #[cfg(not(unix))]
         Host::Unix(..) => Err(io::Error::new(

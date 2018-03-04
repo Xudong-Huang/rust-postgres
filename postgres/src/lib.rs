@@ -77,7 +77,6 @@ extern crate fallible_iterator;
 extern crate log;
 extern crate postgres_protocol;
 extern crate postgres_shared;
-extern crate socket2;
 extern crate may;
 
 use fallible_iterator::FallibleIterator;
@@ -116,6 +115,7 @@ pub use postgres_shared::{error, types};
 #[macro_use]
 mod macros;
 
+mod co_socket;
 pub mod notification;
 pub mod params;
 mod priv_io;
